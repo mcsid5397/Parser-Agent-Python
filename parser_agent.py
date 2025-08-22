@@ -28,5 +28,5 @@ def parse_code(code):
 
 if __name__ == '__main__':
     import os
-    port = int(os.environ.get("PORT", 10000))  # Render default
+    port = int(os.environ.get("PORT", 8080))  # Some Render setups
     app.run(host="0.0.0.0", port=port)

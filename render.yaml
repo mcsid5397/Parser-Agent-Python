@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: Parser-Agent-Python-v1.0
+    env: python
+    plan: free
+    buildCommand: ""
+    startCommand: python parser_agent.py
+    envVars:
+      - key: PORT
+        value: 8080
