@@ -14,16 +14,38 @@ def parse():
     result = parse_code(code)
     return jsonify(result)
 
+@app.route('/parse', methods=['POST'])
+def parse():
+    code = request.json.get('code', '')
+    result = parse_code(code)
+    response = make_response(jsonify(result), 200)
+    response.headers['Content-Type'] = 'application/json'
+    return response
+
 def parse_code(code):
     tree = ast.parse(code)
     parsed_lines = []
+
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
-            parsed_lines.append({"line": f"def {node.name}(...)", "symbol": "Subroutine"})
+            parsed_lines.append({
+                "line": f"def {node.name}(...)", 
+                "symbol": "Subroutine", 
+                "shape": "subproc"
+            })
         elif isinstance(node, ast.If):
-            parsed_lines.append({"line": "if ...", "symbol": "Decision"})
+            parsed_lines.append({
+                "line": "if ...", 
+                "symbol": "Decision", 
+                "shape": "diamond"
+            })
         elif isinstance(node, ast.Return):
-            parsed_lines.append({"line": "return ...", "symbol": "Terminator"})
+            parsed_lines.append({
+                "line": "return ...", 
+                "symbol": "Terminator", 
+                "shape": "dbl-circ"
+            })
+
     return parsed_lines
 
 if __name__ == '__main__':
