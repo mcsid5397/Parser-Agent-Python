@@ -25,26 +25,49 @@ def parse():
 def parse_code(code):
     tree = ast.parse(code)
     parsed_lines = []
+    counter = 0
 
     for node in ast.walk(tree):
+        label = ""
+        shape = ""
+        
         if isinstance(node, ast.FunctionDef):
-            parsed_lines.append({
-                "line": f"def {node.name}(...)", 
-                "symbol": "Subroutine", 
-                "shape": "subproc"
-            })
+            label = f"def {node.name}(...)"
+            shape = "subproc"
+        
         elif isinstance(node, ast.If):
-            parsed_lines.append({
-                "line": "if ...", 
-                "symbol": "Decision", 
-                "shape": "diamond"
-            })
+            label = "if ..."
+            shape = "diamond"
+        
+        elif isinstance(node, ast.For):
+            label = "for ..."
+            shape = "hex"
+        
+        elif isinstance(node, ast.While):
+            label = "while ..."
+            shape = "hex"
+        
         elif isinstance(node, ast.Return):
+            label = "return ..."
+            shape = "dbl-circ"
+        
+        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+            func_name = getattr(node.value.func, 'id', '')
+            if func_name in ["print", "input"]:
+                label = f"{func_name}(...)"
+                shape = "in-out"
+        
+        elif isinstance(node, ast.Assign):
+            label = "assignment"
+            shape = "rect"
+
+        if label and shape:
             parsed_lines.append({
-                "line": "return ...", 
-                "symbol": "Terminator", 
-                "shape": "dbl-circ"
+                "id": f"N{counter}",
+                "line": label,
+                "shape": shape
             })
+            counter += 1
 
     return parsed_lines
 
