@@ -82,12 +82,21 @@ def build_mermaid_nodes(parsed_lines):
 
     return mermaid_lines, shape_annotations
 
-def build_mermaid_edges(parsed_lines):
+def build_mermaid_edges(parsed_lines, branching_map):
     edges = []
     for i in range(len(parsed_lines) - 1):
         src = parsed_lines[i]["id"]
         dst = parsed_lines[i + 1]["id"]
-        edges.append(f"{src} --> {dst}")
+
+        if src in branching_map:
+            yes_targets = branching_map[src]["yes"]
+            no_targets = branching_map[src]["no"]
+            for yt in yes_targets:
+                edges.append(f"{src} -->|Yes| {yt}")
+            for nt in no_targets:
+                edges.append(f"{src} -->|No| {nt}")
+        else:
+            edges.append(f"{src} --> {dst}")
     return edges    
 
 def generate_mermaid_flowchart(code):
