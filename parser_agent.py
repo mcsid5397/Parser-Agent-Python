@@ -22,7 +22,9 @@ def parse_code(code):
     counter = 0
     node_id_map = {}
 
-    for node in ast.walk(tree):
+    def visit(node, parent_id=None):
+        nonlocal counter
+
         label = ""
         shape = ""
 
@@ -70,21 +72,27 @@ def parse_code(code):
             node_id_map[id(node)] = node_id
             counter += 1
 
-            # Handle branching for If nodes
+            # Handle branching immediately
             if isinstance(node, ast.If):
                 yes_ids = []
                 no_ids = []
                 for yes_node in node.body:
-                    if id(yes_node) in node_id_map:
-                        yes_ids.append(node_id_map[id(yes_node)])
+                    visit(yes_node)
+                    yes_ids.append(node_id_map[id(yes_node)])
                 for no_node in node.orelse:
-                    if id(no_node) in node_id_map:
-                        no_ids.append(node_id_map[id(no_node)])
+                    visit(no_node)
+                    no_ids.append(node_id_map[id(no_node)])
                 branching_map[node_id] = {
                     "yes": yes_ids,
                     "no": no_ids
                 }
+                return  # Skip default child visit for If
 
+        # Visit children
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    visit(tree)
     return parsed_lines, branching_map
 
 def build_mermaid_nodes(parsed_lines):
