@@ -7,9 +7,9 @@ app = Flask(__name__)
 @app.route('/parse', methods=['POST'])
 def parse():
     code = request.json.get('code', '')
-    result = parse_code(code)
-    response = make_response(jsonify(result), 200)
-    response.headers['Content-Type'] = 'application/json'
+    result = generate_mermaid_flowchart(code)
+    response = make_response(result, 200)
+    response.headers['Content-Type'] = 'text/plain'
     return response
 
 def parse_code(code):
