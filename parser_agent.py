@@ -1,21 +1,26 @@
 import os
 import ast
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, make_response
 
 app = Flask(__name__)
 
 @app.route('/parse', methods=['POST'])
 def parse():
-    code = request.json.get('code', '')
-    result = generate_mermaid_flowchart(code)
-    response = make_response(result, 200)
-    response.headers['Content-Type'] = 'text/plain'
-    return response
+    try:
+        code = request.json.get('code', '')
+        result = generate_mermaid_flowchart(code)
+        response = make_response(result, 200)
+        response.headers['Content-Type'] = 'text/plain'
+        return response
+    except Exception as e:
+        return make_response(f"Error: {str(e)}", 500)
 
 def parse_code(code):
     tree = ast.parse(code)
     parsed_lines = []
+    branching_map = {}
     counter = 0
+    node_id_map = {}
 
     for node in ast.walk(tree):
         label = ""
@@ -56,14 +61,31 @@ def parse_code(code):
             shape = "rect"
 
         if label and shape:
+            node_id = f"N{counter}"
             parsed_lines.append({
-                "id": f"N{counter}",
+                "id": node_id,
                 "line": label,
                 "shape": shape
             })
+            node_id_map[id(node)] = node_id
             counter += 1
 
-    return parsed_lines
+            # Handle branching for If nodes
+            if isinstance(node, ast.If):
+                yes_ids = []
+                no_ids = []
+                for yes_node in node.body:
+                    if id(yes_node) in node_id_map:
+                        yes_ids.append(node_id_map[id(yes_node)])
+                for no_node in node.orelse:
+                    if id(no_node) in node_id_map:
+                        no_ids.append(node_id_map[id(no_node)])
+                branching_map[node_id] = {
+                    "yes": yes_ids,
+                    "no": no_ids
+                }
+
+    return parsed_lines, branching_map
 
 def build_mermaid_nodes(parsed_lines):
     mermaid_lines = []
@@ -74,10 +96,7 @@ def build_mermaid_nodes(parsed_lines):
         label = item["line"]
         shape = item["shape"]
 
-        # Mermaid node syntax
         mermaid_lines.append(f'{node_id}["{label}"]')
-
-        # Symbol annotation
         shape_annotations.append(f'{node_id}@{{ shape: {shape} }}')
 
     return mermaid_lines, shape_annotations
@@ -97,18 +116,16 @@ def build_mermaid_edges(parsed_lines, branching_map):
                 edges.append(f"{src} -->|No| {nt}")
         else:
             edges.append(f"{src} --> {dst}")
-    return edges    
+    return edges
 
 def generate_mermaid_flowchart(code):
-    parsed = parse_code(code)
+    parsed, branching_map = parse_code(code)
     nodes, annotations = build_mermaid_nodes(parsed)
-    edges = build_mermaid_edges(parsed)
+    edges = build_mermaid_edges(parsed, branching_map)
 
-    # Add Start node and edge
     nodes.insert(0, 'Start(["Start"])')
     edges.insert(0, f'Start --> {parsed[0]["id"]}')
 
-    # Add End node and edge
     last_id = parsed[-1]["id"]
     nodes.append('End(["End"])')
     edges.append(f'{last_id} --> End')
