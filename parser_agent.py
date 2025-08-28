@@ -22,33 +22,37 @@ def parse_code(code):
         shape = ""
 
         if isinstance(node, ast.FunctionDef):
-            label = f"def {node.name}(...)"
+            args = [arg.arg for arg in node.args.args]
+            label = f"def {node.name}({', '.join(args)})"
             shape = "subproc"
 
         elif isinstance(node, ast.If):
-            label = "if ..."
+            label = f"if {ast.unparse(node.test)}"
             shape = "diamond"
 
         elif isinstance(node, ast.For):
-            label = "for ..."
+            label = f"for {ast.unparse(node.target)} in {ast.unparse(node.iter)}"
             shape = "hex"
 
         elif isinstance(node, ast.While):
-            label = "while ..."
+            label = f"while {ast.unparse(node.test)}"
             shape = "hex"
 
         elif isinstance(node, ast.Return):
-            label = "return ..."
+            label = f"return {ast.unparse(node.value)}"
             shape = "dbl-circ"
 
         elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-            func_name = getattr(node.value.func, 'id', '')
+            func_name = getattr(node.value.func, 'id', ast.unparse(node.value.func))
+            args = [ast.unparse(arg) for arg in node.value.args]
+            label = f"{func_name}({', '.join(args)})"
             if func_name in ["print", "input"]:
-                label = f"{func_name}(...)"
                 shape = "in-out"
 
         elif isinstance(node, ast.Assign):
-            label = "assignment"
+            targets = [ast.unparse(t) for t in node.targets]
+            value = ast.unparse(node.value)
+            label = f"{' = '.join(targets)} = {value}"
             shape = "rect"
 
         if label and shape:
