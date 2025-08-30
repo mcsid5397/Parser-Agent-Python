@@ -72,23 +72,46 @@ def parse_code(code):
             node_id_map[id(node)] = node_id
             counter += 1
 
-            # Handle branching immediately
             if isinstance(node, ast.If):
                 yes_ids = []
                 no_ids = []
+
                 for yes_node in node.body:
                     visit(yes_node)
                     yes_ids.append(node_id_map[id(yes_node)])
+
                 for no_node in node.orelse:
                     visit(no_node)
                     no_ids.append(node_id_map[id(no_node)])
+
                 branching_map[node_id] = {
                     "yes": yes_ids,
                     "no": no_ids
                 }
+
+                # Create merge node
+                merge_id = f"N{counter}"
+                parsed_lines.append({
+                    "id": merge_id,
+                    "line": "Merge",
+                    "shape": "circle"
+                })
+                counter += 1
+
+                # Link terminal nodes of both branches to merge
+                for tid in yes_ids[-1:]:
+                    branching_map.setdefault(tid, {})
+                    branching_map[tid]["next"] = merge_id
+
+                for tid in no_ids[-1:]:
+                    branching_map.setdefault(tid, {})
+                    branching_map[tid]["next"] = merge_id
+
+                branching_map[node_id]["merge"] = merge_id
+                node_id_map[id(merge_id)] = merge_id
+
                 return  # Skip default child visit for If
 
-        # Visit children
         for child in ast.iter_child_nodes(node):
             visit(child)
 
@@ -111,19 +134,30 @@ def build_mermaid_nodes(parsed_lines):
 
 def build_mermaid_edges(parsed_lines, branching_map):
     edges = []
+    visited = set()
+
     for i in range(len(parsed_lines) - 1):
         src = parsed_lines[i]["id"]
         dst = parsed_lines[i + 1]["id"]
 
         if src in branching_map:
-            yes_targets = branching_map[src]["yes"]
-            no_targets = branching_map[src]["no"]
-            for yt in yes_targets:
-                edges.append(f"{src} -->|Yes| {yt}")
-            for nt in no_targets:
-                edges.append(f"{src} -->|No| {nt}")
-        else:
+            if "yes" in branching_map[src]:
+                for yt in branching_map[src]["yes"]:
+                    edges.append(f"{src} -->|Yes| {yt}")
+            if "no" in branching_map[src]:
+                for nt in branching_map[src]["no"]:
+                    edges.append(f"{src} -->|No| {nt}")
+            if "merge" in branching_map[src]:
+                merge_id = branching_map[src]["merge"]
+                visited.add(merge_id)
+        elif src not in visited:
             edges.append(f"{src} --> {dst}")
+
+    # Add 'next' links from terminal nodes to merge
+    for src, targets in branching_map.items():
+        if "next" in targets:
+            edges.append(f"{src} --> {targets['next']}")
+
     return edges
 
 def generate_mermaid_flowchart(code):
