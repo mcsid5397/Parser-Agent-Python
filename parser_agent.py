@@ -15,7 +15,7 @@ def parse():
     except Exception as e:
         return make_response(f"Error: {str(e)}", 500)
 
-def parse_code(code):
+def parse_code(code): # For the flowchart
     tree = ast.parse(code)
     parsed_lines = []
     branching_map = {}
