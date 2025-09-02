@@ -4,7 +4,7 @@ from flask import Flask, request, make_response
 
 app = Flask(__name__)
 
-@app.route('/parse', methods=['POST'])
+@app.route('/parse', methods=['POST']) # Parsing python code
 def parse():
     try:
         code = request.json.get('code', '')
