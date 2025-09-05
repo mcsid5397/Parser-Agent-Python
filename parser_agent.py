@@ -81,10 +81,13 @@ def parse_code(code):  # For the flowchart
             if isinstance(node, ast.If):
                 yes_ids = []
                 no_ids = []
+                terminal_ids = []
 
                 for yes_node in node.body:
                     visit(yes_node, node.body)
                     yes_ids.append(node_id_map[id(yes_node)])
+                if yes_ids:
+                    terminal_ids.append(yes_ids[-1])
 
                 def visit_orelse_block(orelse):
                     for sub_node in orelse:
@@ -93,6 +96,8 @@ def parse_code(code):  # For the flowchart
                         else:
                             visit(sub_node, parent_body)
                             no_ids.append(node_id_map[id(sub_node)])
+                    if no_ids:
+                        terminal_ids.append(no_ids[-1])
 
                 visit_orelse_block(node.orelse)
 
@@ -101,7 +106,6 @@ def parse_code(code):  # For the flowchart
                     "no": no_ids
                 }
 
-                # Find next sibling after the entire ladder
                 if parent_body:
                     idx = next((i for i, n in enumerate(parent_body) if n is node), None)
                     if idx is not None and idx + 1 < len(parent_body):
@@ -109,9 +113,7 @@ def parse_code(code):  # For the flowchart
                         visit(next_node, parent_body)
                         next_id = node_id_map[id(next_node)]
 
-                        for tid in yes_ids[-1:]:
-                            branching_map.setdefault(tid, {})["next"] = next_id
-                        for tid in no_ids[-1:]:
+                        for tid in terminal_ids:
                             branching_map.setdefault(tid, {})["next"] = next_id
 
                 return
@@ -149,7 +151,6 @@ def build_mermaid_edges(parsed_lines, branching_map):
         if "next" in targets:
             edges.append(f"{src} --> {targets['next']}")
 
-    # Add linear edges for non-branching nodes
     for i in range(len(parsed_lines) - 1):
         src = parsed_lines[i]["id"]
         dst = parsed_lines[i + 1]["id"]
