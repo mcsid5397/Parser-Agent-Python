@@ -161,6 +161,7 @@ def build_mermaid_nodes(parsed_lines):
 
 def build_mermaid_edges(parsed_lines, branching_map):
     edges = []
+    linked_to_end = set()
 
     for src, targets in branching_map.items():
         if "yes" in targets:
@@ -180,8 +181,10 @@ def build_mermaid_edges(parsed_lines, branching_map):
 
     # Ensure all return nodes link to End if they have no next
     for item in parsed_lines:
-        if item["line"].startswith("return") and item["id"] not in [e.split(" --> ")[0] for e in edges]:
-            edges.append(f'{item["id"]} --> End')
+        if item["line"].startswith("return") and all(f"{item['id']} -->" not in e for e in edges):
+            if item["id"] not in linked_to_end:
+                edges.append(f"{item['id']} --> End")
+                linked_to_end.add(item["id"])
 
     return edges
 
@@ -195,7 +198,8 @@ def generate_mermaid_flowchart(code):
 
     last_id = parsed[-1]["id"]
     nodes.append('End(["End"])')
-    edges.append(f'{last_id} --> End')
+    if f'{last_id} --> End' not in edges:
+        edges.append(f'{last_id} --> End')
 
     flowchart = "flowchart TD\n" + "\n".join(nodes + edges)
     annotation_block = "\n" + "\n".join(annotations)
