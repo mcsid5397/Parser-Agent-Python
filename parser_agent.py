@@ -48,8 +48,9 @@ def parse_code(code):  # For the flowchart
 
             parent_body = node.body
             if parent_body:
-                visit(parent_body[0], parent_body)
-                first_child_id = node_id_map[id(parent_body[0])]
+                first_node = parent_body[0]
+                visit(first_node, parent_body)
+                first_child_id = node_id_map[id(first_node)]
                 branching_map[node_id] = {"next": first_child_id}
             return
 
