@@ -61,9 +61,12 @@ def parse_code(code):  # For the flowchart
             label = f"for {ast.unparse(node.target)} in {ast.unparse(node.iter)}"
             shape = "hex"
 
-        elif isinstance(node, ast.While):
-            label = f"while {ast.unparse(node.test)}"
-            shape = "hex"
+        elif isinstance(node, ast.Return):
+            if node.value:
+                label = f"return {ast.unparse(node.value)}"
+            else:
+                label = "return"
+            shape = "dbl-circ"
 
         elif isinstance(node, ast.Return):
             label = f"return {ast.unparse(node.value)}"
