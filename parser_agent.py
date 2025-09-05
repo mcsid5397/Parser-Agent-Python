@@ -21,6 +21,7 @@ def parse_code(code):  # For the flowchart
     branching_map = {}
     counter = 0
     node_id_map = {}
+
     visited_nodes = set()
 
     def visit(node, parent_body=None):
@@ -37,7 +38,7 @@ def parse_code(code):  # For the flowchart
             args = [arg.arg for arg in node.args.args]
             label = f"def {node.name}({', '.join(args)})"
             shape = "subproc"
-            parent_body = node.body
+            parent_body = node.body  # Track function body for sibling logic
 
         elif isinstance(node, ast.If):
             label = f"if {ast.unparse(node.test)}"
@@ -89,6 +90,7 @@ def parse_code(code):  # For the flowchart
                 if yes_ids:
                     terminal_ids.append(yes_ids[-1])
 
+<<<<<<< HEAD
                 def visit_orelse_block(orelse):
                     for sub_node in orelse:
                         if isinstance(sub_node, ast.If):
@@ -100,23 +102,43 @@ def parse_code(code):  # For the flowchart
                         terminal_ids.append(no_ids[-1])
 
                 visit_orelse_block(node.orelse)
+=======
+                for no_node in node.orelse:
+                    visit(no_node, node.orelse)
+                    no_ids.append(node_id_map[id(no_node)])
+>>>>>>> parent of 8410c1f (elif block linking back to custom node (indendation))
 
                 branching_map[node_id] = {
                     "yes": yes_ids,
                     "no": no_ids
                 }
 
+<<<<<<< HEAD
                 if parent_body:
                     idx = next((i for i, n in enumerate(parent_body) if n is node), None)
                     if idx is not None and idx + 1 < len(parent_body):
+=======
+                # Find next sibling in parent body
+                if parent_body:
+                    idx = parent_body.index(node)
+                    if idx + 1 < len(parent_body):
+>>>>>>> parent of 8410c1f (elif block linking back to custom node (indendation))
                         next_node = parent_body[idx + 1]
                         visit(next_node, parent_body)
                         next_id = node_id_map[id(next_node)]
 
+<<<<<<< HEAD
                         for tid in terminal_ids:
                             branching_map.setdefault(tid, {})["next"] = next_id
+=======
+                        # Link terminal nodes of both branches to next
+                        if yes_ids:
+                            branching_map.setdefault(yes_ids[-1], {})["next"] = next_id
+                        if no_ids:
+                            branching_map.setdefault(no_ids[-1], {})["next"] = next_id
+>>>>>>> parent of 8410c1f (elif block linking back to custom node (indendation))
 
-                return
+                return  # Skip default child visit for If
 
         for child in ast.iter_child_nodes(node):
             visit(child, parent_body)
