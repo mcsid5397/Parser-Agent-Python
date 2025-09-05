@@ -103,15 +103,12 @@ def parse_code(code):  # For the flowchart
 
                 # Find next sibling after the entire ladder
                 if parent_body:
-                    idx = parent_body.index(node)
-                    next_id = None
-                    for j in range(idx + 1, len(parent_body)):
-                        next_node = parent_body[j]
+                    idx = next((i for i, n in enumerate(parent_body) if n is node), None)
+                    if idx is not None and idx + 1 < len(parent_body):
+                        next_node = parent_body[idx + 1]
                         visit(next_node, parent_body)
                         next_id = node_id_map[id(next_node)]
-                        break
 
-                    if next_id:
                         for tid in yes_ids[-1:]:
                             branching_map.setdefault(tid, {})["next"] = next_id
                         for tid in no_ids[-1:]:
