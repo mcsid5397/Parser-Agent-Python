@@ -178,6 +178,11 @@ def build_mermaid_edges(parsed_lines, branching_map):
         if not any(src == b or src in branching_map for b in [t["id"] for t in parsed_lines]):
             edges.append(f"{src} --> {dst}")
 
+    # Ensure all return nodes link to End if they have no next
+    for item in parsed_lines:
+        if item["line"].startswith("return") and item["id"] not in [e.split(" --> ")[0] for e in edges]:
+            edges.append(f'{item["id"]} --> End')
+
     return edges
 
 def generate_mermaid_flowchart(code):
