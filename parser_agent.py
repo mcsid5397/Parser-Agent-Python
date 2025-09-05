@@ -1,6 +1,7 @@
 import os
 import ast
 from flask import Flask, request, make_response
+import traceback
 
 app = Flask(__name__)
 
@@ -13,7 +14,8 @@ def parse():
         response.headers['Content-Type'] = 'text/plain'
         return response
     except Exception as e:
-        return make_response(f"Error: {str(e)}", 500)
+        error_msg = traceback.format_exc()
+        return make_response(f"Error:\n{error_msg}", 500)
 
 def parse_code(code):  # For the flowchart
     tree = ast.parse(code)
