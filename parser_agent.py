@@ -52,9 +52,9 @@ def parse_code(code):  # For the flowchart
             if parent_body:
                 for i, child in enumerate(parent_body):
                     visit(child, parent_body)
-                    if i == 0:
-                        first_child_id = node_id_map[id(child)]
-                        branching_map[node_id] = {"next": first_child_id}
+                    child_id = node_id_map.get(id(child))
+                    if i == 0 and child_id:
+                        branching_map[node_id] = {"next": child_id}
 
         elif isinstance(node, ast.If):
             label = f"if {ast.unparse(node.test)}"
@@ -69,10 +69,7 @@ def parse_code(code):  # For the flowchart
             shape = "hex"
 
         elif isinstance(node, ast.Return):
-            if node.value:
-                label = f"return {ast.unparse(node.value)}"
-            else:
-                label = "return"
+            label = f"return {ast.unparse(node.value)}" if node.value else "return"
             shape = "dbl-circ"
 
         elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
@@ -105,23 +102,24 @@ def parse_code(code):  # For the flowchart
 
                 for yes_node in node.body:
                     visit(yes_node, node.body)
-                    yes_ids.append(node_id_map[id(yes_node)])
+                    yes_id = node_id_map.get(id(yes_node))
+                    if yes_id:
+                        yes_ids.append(yes_id)
                 if yes_ids:
                     terminal_ids.append(yes_ids[-1])
 
                 def visit_orelse_block(orelse):
                     for sub_node in orelse:
+                        visit(sub_node, parent_body)
+                        sub_id = node_id_map.get(id(sub_node))
                         if isinstance(sub_node, ast.If):
-                            visit(sub_node, parent_body)
-                            sub_id = node_id_map[id(sub_node)]
-                            if sub_id in branching_map:
+                            if sub_id and sub_id in branching_map:
                                 for branch in ["yes", "no"]:
                                     ids = branching_map[sub_id].get(branch, [])
                                     if ids:
                                         terminal_ids.append(ids[-1])
-                        else:
-                            visit(sub_node, parent_body)
-                            no_ids.append(node_id_map[id(sub_node)])
+                        elif sub_id:
+                            no_ids.append(sub_id)
                     if no_ids:
                         terminal_ids.append(no_ids[-1])
 
@@ -137,9 +135,10 @@ def parse_code(code):  # For the flowchart
                     if idx is not None and idx + 1 < len(parent_body):
                         next_node = parent_body[idx + 1]
                         visit(next_node, parent_body)
-                        next_id = node_id_map[id(next_node)]
-                        for tid in terminal_ids:
-                            branching_map.setdefault(tid, {})["next"] = next_id
+                        next_id = node_id_map.get(id(next_node))
+                        if next_id:
+                            for tid in terminal_ids:
+                                branching_map.setdefault(tid, {})["next"] = next_id
                 return
 
         for child in ast.iter_child_nodes(node):
@@ -181,7 +180,6 @@ def build_mermaid_edges(parsed_lines, branching_map):
         if not any(src == b or src in branching_map for b in [t["id"] for t in parsed_lines]):
             edges.append(f"{src} --> {dst}")
 
-    # Ensure all return nodes link to End if they have no next
     for item in parsed_lines:
         if item["line"].startswith("return") and all(f"{item['id']} -->" not in e for e in edges):
             if item["id"] not in linked_to_end:
