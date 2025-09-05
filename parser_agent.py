@@ -22,8 +22,14 @@ def parse_code(code):  # For the flowchart
     counter = 0
     node_id_map = {}
 
+    visited_nodes = set()
+
     def visit(node, parent_body=None):
         nonlocal counter
+
+        if id(node) in visited_nodes:
+            return
+        visited_nodes.add(id(node))
 
         label = ""
         shape = ""
