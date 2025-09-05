@@ -37,7 +37,21 @@ def parse_code(code):  # For the flowchart
             args = [arg.arg for arg in node.args.args]
             label = f"def {node.name}({', '.join(args)})"
             shape = "subproc"
+            node_id = f"N{counter}"
+            parsed_lines.append({
+                "id": node_id,
+                "line": label,
+                "shape": shape
+            })
+            node_id_map[id(node)] = node_id
+            counter += 1
+
             parent_body = node.body
+            if parent_body:
+                visit(parent_body[0], parent_body)
+                first_child_id = node_id_map[id(parent_body[0])]
+                branching_map[node_id] = {"next": first_child_id}
+            return
 
         elif isinstance(node, ast.If):
             label = f"if {ast.unparse(node.test)}"
@@ -118,10 +132,8 @@ def parse_code(code):  # For the flowchart
                         next_node = parent_body[idx + 1]
                         visit(next_node, parent_body)
                         next_id = node_id_map[id(next_node)]
-
                         for tid in terminal_ids:
                             branching_map.setdefault(tid, {})["next"] = next_id
-
                 return
 
         for child in ast.iter_child_nodes(node):
@@ -138,7 +150,6 @@ def build_mermaid_nodes(parsed_lines):
         node_id = item["id"]
         label = item["line"]
         shape = item["shape"]
-
         mermaid_lines.append(f'{node_id}["{label}"]')
         shape_annotations.append(f'{node_id}@{{ shape: {shape} }}')
 
