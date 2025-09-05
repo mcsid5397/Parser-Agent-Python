@@ -48,11 +48,11 @@ def parse_code(code):  # For the flowchart
 
             parent_body = node.body
             if parent_body:
-                first_node = parent_body[0]
-                visit(first_node, parent_body)
-                first_child_id = node_id_map[id(first_node)]
-                branching_map[node_id] = {"next": first_child_id}
-            return
+                for i, child in enumerate(parent_body):
+                    visit(child, parent_body)
+                    if i == 0:
+                        first_child_id = node_id_map[id(child)]
+                        branching_map[node_id] = {"next": first_child_id}
 
         elif isinstance(node, ast.If):
             label = f"if {ast.unparse(node.test)}"
