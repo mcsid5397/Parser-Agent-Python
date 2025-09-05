@@ -21,7 +21,6 @@ def parse_code(code):  # For the flowchart
     branching_map = {}
     counter = 0
     node_id_map = {}
-
     visited_nodes = set()
 
     def visit(node, parent_body=None):
@@ -38,7 +37,7 @@ def parse_code(code):  # For the flowchart
             args = [arg.arg for arg in node.args.args]
             label = f"def {node.name}({', '.join(args)})"
             shape = "subproc"
-            parent_body = node.body  # Track function body for sibling logic
+            parent_body = node.body
 
         elif isinstance(node, ast.If):
             label = f"if {ast.unparse(node.test)}"
@@ -87,30 +86,38 @@ def parse_code(code):  # For the flowchart
                     visit(yes_node, node.body)
                     yes_ids.append(node_id_map[id(yes_node)])
 
-                for no_node in node.orelse:
-                    visit(no_node, node.orelse)
-                    no_ids.append(node_id_map[id(no_node)])
+                def visit_orelse_block(orelse):
+                    for sub_node in orelse:
+                        if isinstance(sub_node, ast.If):
+                            visit(sub_node, parent_body)
+                        else:
+                            visit(sub_node, parent_body)
+                            no_ids.append(node_id_map[id(sub_node)])
+
+                visit_orelse_block(node.orelse)
 
                 branching_map[node_id] = {
                     "yes": yes_ids,
                     "no": no_ids
                 }
 
-                # Find next sibling in parent body
+                # Find next sibling after the entire ladder
                 if parent_body:
                     idx = parent_body.index(node)
-                    if idx + 1 < len(parent_body):
-                        next_node = parent_body[idx + 1]
+                    next_id = None
+                    for j in range(idx + 1, len(parent_body)):
+                        next_node = parent_body[j]
                         visit(next_node, parent_body)
                         next_id = node_id_map[id(next_node)]
+                        break
 
-                        # Link terminal nodes of both branches to next
-                        if yes_ids:
-                            branching_map.setdefault(yes_ids[-1], {})["next"] = next_id
-                        if no_ids:
-                            branching_map.setdefault(no_ids[-1], {})["next"] = next_id
+                    if next_id:
+                        for tid in yes_ids[-1:]:
+                            branching_map.setdefault(tid, {})["next"] = next_id
+                        for tid in no_ids[-1:]:
+                            branching_map.setdefault(tid, {})["next"] = next_id
 
-                return  # Skip default child visit for If
+                return
 
         for child in ast.iter_child_nodes(node):
             visit(child, parent_body)
