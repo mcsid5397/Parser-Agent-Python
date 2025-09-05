@@ -4,7 +4,7 @@ from flask import Flask, request, make_response
 
 app = Flask(__name__)
 
-@app.route('/parse', methods=['POST']) # Parsing python code
+@app.route('/parse', methods=['POST'])  # Parsing python code
 def parse():
     try:
         code = request.json.get('code', '')
@@ -15,14 +15,14 @@ def parse():
     except Exception as e:
         return make_response(f"Error: {str(e)}", 500)
 
-def parse_code(code): # For the flowchart
+def parse_code(code):  # For the flowchart
     tree = ast.parse(code)
     parsed_lines = []
     branching_map = {}
     counter = 0
     node_id_map = {}
 
-    def visit(node, parent_id=None):
+    def visit(node, parent_body=None):
         nonlocal counter
 
         label = ""
@@ -32,6 +32,7 @@ def parse_code(code): # For the flowchart
             args = [arg.arg for arg in node.args.args]
             label = f"def {node.name}({', '.join(args)})"
             shape = "subproc"
+            parent_body = node.body  # Track function body for sibling logic
 
         elif isinstance(node, ast.If):
             label = f"if {ast.unparse(node.test)}"
@@ -77,11 +78,11 @@ def parse_code(code): # For the flowchart
                 no_ids = []
 
                 for yes_node in node.body:
-                    visit(yes_node)
+                    visit(yes_node, node.body)
                     yes_ids.append(node_id_map[id(yes_node)])
 
                 for no_node in node.orelse:
-                    visit(no_node)
+                    visit(no_node, node.orelse)
                     no_ids.append(node_id_map[id(no_node)])
 
                 branching_map[node_id] = {
@@ -89,31 +90,24 @@ def parse_code(code): # For the flowchart
                     "no": no_ids
                 }
 
-                # Create merge node
-                merge_id = f"N{counter}"
-                parsed_lines.append({
-                    "id": merge_id,
-                    "line": "Merge",
-                    "shape": "circle"
-                })
-                counter += 1
+                # Find next sibling in parent body
+                if parent_body:
+                    idx = parent_body.index(node)
+                    if idx + 1 < len(parent_body):
+                        next_node = parent_body[idx + 1]
+                        visit(next_node, parent_body)
+                        next_id = node_id_map[id(next_node)]
 
-                # Link terminal nodes of both branches to merge
-                for tid in yes_ids[-1:]:
-                    branching_map.setdefault(tid, {})
-                    branching_map[tid]["next"] = merge_id
-
-                for tid in no_ids[-1:]:
-                    branching_map.setdefault(tid, {})
-                    branching_map[tid]["next"] = merge_id
-
-                branching_map[node_id]["merge"] = merge_id
-                node_id_map[id(merge_id)] = merge_id
+                        # Link terminal nodes of both branches to next
+                        if yes_ids:
+                            branching_map.setdefault(yes_ids[-1], {})["next"] = next_id
+                        if no_ids:
+                            branching_map.setdefault(no_ids[-1], {})["next"] = next_id
 
                 return  # Skip default child visit for If
 
         for child in ast.iter_child_nodes(node):
-            visit(child)
+            visit(child, parent_body)
 
     visit(tree)
     return parsed_lines, branching_map
@@ -134,29 +128,23 @@ def build_mermaid_nodes(parsed_lines):
 
 def build_mermaid_edges(parsed_lines, branching_map):
     edges = []
-    visited = set()
 
+    for src, targets in branching_map.items():
+        if "yes" in targets:
+            for yt in targets["yes"]:
+                edges.append(f"{src} -->|Yes| {yt}")
+        if "no" in targets:
+            for nt in targets["no"]:
+                edges.append(f"{src} -->|No| {nt}")
+        if "next" in targets:
+            edges.append(f"{src} --> {targets['next']}")
+
+    # Add linear edges for non-branching nodes
     for i in range(len(parsed_lines) - 1):
         src = parsed_lines[i]["id"]
         dst = parsed_lines[i + 1]["id"]
-
-        if src in branching_map:
-            if "yes" in branching_map[src]:
-                for yt in branching_map[src]["yes"]:
-                    edges.append(f"{src} -->|Yes| {yt}")
-            if "no" in branching_map[src]:
-                for nt in branching_map[src]["no"]:
-                    edges.append(f"{src} -->|No| {nt}")
-            if "merge" in branching_map[src]:
-                merge_id = branching_map[src]["merge"]
-                visited.add(merge_id)
-        elif src not in visited:
+        if not any(src == b or src in branching_map for b in [t["id"] for t in parsed_lines]):
             edges.append(f"{src} --> {dst}")
-
-    # Add 'next' links from terminal nodes to merge
-    for src, targets in branching_map.items():
-        if "next" in targets:
-            edges.append(f"{src} --> {targets['next']}")
 
     return edges
 
