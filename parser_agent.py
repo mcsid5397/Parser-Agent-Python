@@ -17,13 +17,14 @@ def parse():
         error_msg = traceback.format_exc()
         return make_response(f"Error:\n{error_msg}", 500)
 
-def parse_code(code):  # For the flowchart
+def parse_code(code):
     tree = ast.parse(code)
     parsed_lines = []
     branching_map = {}
     counter = 0
     node_id_map = {}
     visited_nodes = set()
+    function_ids = set()
 
     def link_sequential_flow(body):
         for i in range(len(body) - 1):
@@ -43,15 +44,14 @@ def parse_code(code):  # For the flowchart
         shape = ""
 
         if isinstance(node, ast.FunctionDef):
+            if id(node) in function_ids:
+                return
+            function_ids.add(id(node))
             args = [arg.arg for arg in node.args.args]
             label = f"def {node.name}({', '.join(args)})"
             shape = "subproc"
             node_id = f"N{counter}"
-            parsed_lines.append({
-                "id": node_id,
-                "line": label,
-                "shape": shape
-            })
+            parsed_lines.append({"id": node_id, "line": label, "shape": shape})
             node_id_map[id(node)] = node_id
             counter += 1
 
@@ -76,6 +76,10 @@ def parse_code(code):  # For the flowchart
             label = f"while {ast.unparse(node.test)}"
             shape = "hex"
 
+        elif isinstance(node, ast.Continue):
+            label = "continue"
+            shape = "dbl-circ"
+
         elif isinstance(node, ast.Return):
             label = f"return {ast.unparse(node.value)}" if node.value else "return"
             shape = "dbl-circ"
@@ -95,18 +99,12 @@ def parse_code(code):  # For the flowchart
 
         if label and shape:
             node_id = f"N{counter}"
-            parsed_lines.append({
-                "id": node_id,
-                "line": label,
-                "shape": shape
-            })
+            parsed_lines.append({"id": node_id, "line": label, "shape": shape})
             node_id_map[id(node)] = node_id
             counter += 1
 
             if isinstance(node, ast.If):
-                yes_ids = []
-                no_ids = []
-                terminal_ids = []
+                yes_ids, no_ids, terminal_ids = [], [], []
 
                 for yes_node in node.body:
                     visit(yes_node, node.body)
@@ -135,10 +133,7 @@ def parse_code(code):  # For the flowchart
 
                 visit_orelse_block(node.orelse)
 
-                branching_map[node_id] = {
-                    "yes": yes_ids,
-                    "no": no_ids
-                }
+                branching_map[node_id] = {"yes": yes_ids, "no": no_ids}
 
                 if parent_body:
                     idx = next((i for i, n in enumerate(parent_body) if n is node), None)
