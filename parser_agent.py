@@ -44,9 +44,10 @@ def parse_code(code):
         shape = ""
 
         if isinstance(node, ast.FunctionDef):
-            if id(node) in function_ids:
+            if node.name in function_ids:
                 return
-            function_ids.add(id(node))
+            function_ids.add(node.name)
+
             args = [arg.arg for arg in node.args.args]
             label = f"def {node.name}({', '.join(args)})"
             shape = "subproc"
