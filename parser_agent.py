@@ -1,11 +1,11 @@
 import os
 import ast
-from flask import Flask, request, make_response
 import traceback
+from flask import Flask, request, make_response
 
 app = Flask(__name__)
 
-@app.route('/parse', methods=['POST'])  # Parsing python code
+@app.route('/parse', methods=['POST'])
 def parse():
     try:
         code = request.json.get('code', '')
@@ -13,7 +13,7 @@ def parse():
         response = make_response(result, 200)
         response.headers['Content-Type'] = 'text/plain'
         return response
-    except Exception as e:
+    except Exception:
         error_msg = traceback.format_exc()
         return make_response(f"Error:\n{error_msg}", 500)
 
@@ -21,10 +21,20 @@ def parse_code(code):
     tree = ast.parse(code)
     parsed_lines = []
     branching_map = {}
-    counter = 0
     node_id_map = {}
     visited_nodes = set()
-    function_ids = set()
+    seen_labels = set()
+    counter = 0
+
+    def add_node(label, shape):
+        nonlocal counter
+        if label in seen_labels:
+            return None
+        seen_labels.add(label)
+        node_id = f"N{counter}"
+        parsed_lines.append({"id": node_id, "line": label, "shape": shape})
+        counter += 1
+        return node_id
 
     def link_sequential_flow(body):
         for i in range(len(body) - 1):
@@ -34,36 +44,26 @@ def parse_code(code):
                 branching_map.setdefault(src, {})["next"] = dst
 
     def visit(node, parent_body=None):
-        nonlocal counter
-
         if id(node) in visited_nodes:
             return
         visited_nodes.add(id(node))
 
-        label = ""
-        shape = ""
+        label, shape = "", ""
 
         if isinstance(node, ast.FunctionDef):
-            if node.name in function_ids:
-                return
-            function_ids.add(node.name)
-
             args = [arg.arg for arg in node.args.args]
             label = f"def {node.name}({', '.join(args)})"
             shape = "subproc"
-            node_id = f"N{counter}"
-            parsed_lines.append({"id": node_id, "line": label, "shape": shape})
-            node_id_map[id(node)] = node_id
-            counter += 1
-
-            parent_body = node.body
-            if parent_body:
-                for i, child in enumerate(parent_body):
-                    visit(child, parent_body)
+            node_id = add_node(label, shape)
+            if node_id:
+                node_id_map[id(node)] = node_id
+                for i, child in enumerate(node.body):
+                    visit(child, node.body)
                     child_id = node_id_map.get(id(child))
                     if i == 0 and child_id:
                         branching_map[node_id] = {"next": child_id}
-                link_sequential_flow(parent_body)
+                link_sequential_flow(node.body)
+            return
 
         elif isinstance(node, ast.If):
             label = f"if {ast.unparse(node.test)}"
@@ -98,63 +98,36 @@ def parse_code(code):
             label = f"{' = '.join(targets)} = {value}"
             shape = "rect"
 
-        if label and shape:
-            node_id = f"N{counter}"
-            parsed_lines.append({"id": node_id, "line": label, "shape": shape})
+        node_id = add_node(label, shape)
+        if node_id:
             node_id_map[id(node)] = node_id
-            counter += 1
 
-            if isinstance(node, ast.If):
-                yes_ids, no_ids, terminal_ids = [], [], []
+        if isinstance(node, ast.If):
+            yes_ids, no_ids = [], []
 
-                for yes_node in node.body:
-                    visit(yes_node, node.body)
-                    yes_id = node_id_map.get(id(yes_node))
-                    if yes_id:
-                        yes_ids.append(yes_id)
-                if yes_ids:
-                    terminal_ids.append(yes_ids[-1])
-                link_sequential_flow(node.body)
+            for yes_node in node.body:
+                visit(yes_node, node.body)
+                yes_id = node_id_map.get(id(yes_node))
+                if yes_id:
+                    yes_ids.append(yes_id)
+            link_sequential_flow(node.body)
 
-                def visit_orelse_block(orelse):
-                    for sub_node in orelse:
-                        visit(sub_node, parent_body)
-                        sub_id = node_id_map.get(id(sub_node))
-                        if isinstance(sub_node, ast.If):
-                            if sub_id and sub_id in branching_map:
-                                for branch in ["yes", "no"]:
-                                    ids = branching_map[sub_id].get(branch, [])
-                                    if ids:
-                                        terminal_ids.append(ids[-1])
-                        elif sub_id:
-                            no_ids.append(sub_id)
-                    if no_ids:
-                        terminal_ids.append(no_ids[-1])
-                    link_sequential_flow(orelse)
+            for no_node in node.orelse:
+                visit(no_node, node.orelse)
+                no_id = node_id_map.get(id(no_node))
+                if no_id:
+                    no_ids.append(no_id)
+            link_sequential_flow(node.orelse)
 
-                visit_orelse_block(node.orelse)
+            branching_map[node_id] = {"yes": yes_ids, "no": no_ids}
 
-                branching_map[node_id] = {"yes": yes_ids, "no": no_ids}
-
-                if parent_body:
-                    idx = next((i for i, n in enumerate(parent_body) if n is node), None)
-                    if idx is not None and idx + 1 < len(parent_body):
-                        next_node = parent_body[idx + 1]
-                        visit(next_node, parent_body)
-                        next_id = node_id_map.get(id(next_node))
-                        if next_id:
-                            for tid in terminal_ids:
-                                branching_map.setdefault(tid, {})["next"] = next_id
-                return
-
-            elif isinstance(node, (ast.For, ast.While)):
-                for loop_node in node.body:
-                    visit(loop_node, node.body)
-                link_sequential_flow(node.body)
-                last_id = node_id_map.get(id(node.body[-1]))
-                loop_id = node_id_map.get(id(node))
-                if last_id and loop_id:
-                    branching_map.setdefault(last_id, {})["next"] = loop_id
+        elif isinstance(node, (ast.For, ast.While)):
+            for loop_node in node.body:
+                visit(loop_node, node.body)
+            link_sequential_flow(node.body)
+            last_id = node_id_map.get(id(node.body[-1]))
+            if last_id and node_id:
+                branching_map.setdefault(last_id, {})["next"] = node_id
 
         for child in ast.iter_child_nodes(node):
             visit(child, parent_body)
@@ -163,17 +136,12 @@ def parse_code(code):
     return parsed_lines, branching_map
 
 def build_mermaid_nodes(parsed_lines):
-    mermaid_lines = []
-    shape_annotations = []
-
+    nodes = []
+    annotations = []
     for item in parsed_lines:
-        node_id = item["id"]
-        label = item["line"]
-        shape = item["shape"]
-        mermaid_lines.append(f'{node_id}["{label}"]')
-        shape_annotations.append(f'{node_id}@{{ shape: {shape} }}')
-
-    return mermaid_lines, shape_annotations
+        nodes.append(f'{item["id"]}["{item["line"]}"]')
+        annotations.append(f'{item["id"]}@{{ shape: {item["shape"]} }}')
+    return nodes, annotations
 
 def build_mermaid_edges(parsed_lines, branching_map):
     edges = []
@@ -198,7 +166,7 @@ def build_mermaid_edges(parsed_lines, branching_map):
     for item in parsed_lines:
         if item["line"].startswith("return") and all(f"{item['id']} -->" not in e for e in edges):
             if item["id"] not in linked_to_end:
-                edges.append(f"{item['id']} --> End")
+                edges.append(f'{item["id"]} --> End')
                 linked_to_end.add(item["id"])
 
     return edges
@@ -210,16 +178,13 @@ def generate_mermaid_flowchart(code):
 
     nodes.insert(0, 'Start(["Start"])')
     edges.insert(0, f'Start --> {parsed[0]["id"]}')
+    nodes.append('End(["End"])')
 
     last_id = parsed[-1]["id"]
-    nodes.append('End(["End"])')
-    if f'{last_id} --> End' not in edges:
-        edges.append(f'{last_id} --> End')
+    if f"{last_id} --> End" not in edges:
+        edges.append(f"{last_id} --> End")
 
-    flowchart = "flowchart TD\n" + "\n".join(nodes + edges)
-    annotation_block = "\n" + "\n".join(annotations)
-
-    return flowchart + annotation_block
+    return "flowchart TD\n" + "\n".join(nodes + edges) + "\n" + "\n".join(annotations)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
