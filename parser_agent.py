@@ -25,6 +25,13 @@ def parse_code(code):  # For the flowchart
     node_id_map = {}
     visited_nodes = set()
 
+    def link_sequential_flow(body):
+        for i in range(len(body) - 1):
+            src = node_id_map.get(id(body[i]))
+            dst = node_id_map.get(id(body[i + 1]))
+            if src and dst:
+                branching_map.setdefault(src, {})["next"] = dst
+
     def visit(node, parent_body=None):
         nonlocal counter
 
@@ -55,6 +62,7 @@ def parse_code(code):  # For the flowchart
                     child_id = node_id_map.get(id(child))
                     if i == 0 and child_id:
                         branching_map[node_id] = {"next": child_id}
+                link_sequential_flow(parent_body)
 
         elif isinstance(node, ast.If):
             label = f"if {ast.unparse(node.test)}"
@@ -107,6 +115,7 @@ def parse_code(code):  # For the flowchart
                         yes_ids.append(yes_id)
                 if yes_ids:
                     terminal_ids.append(yes_ids[-1])
+                link_sequential_flow(node.body)
 
                 def visit_orelse_block(orelse):
                     for sub_node in orelse:
@@ -122,6 +131,7 @@ def parse_code(code):  # For the flowchart
                             no_ids.append(sub_id)
                     if no_ids:
                         terminal_ids.append(no_ids[-1])
+                    link_sequential_flow(orelse)
 
                 visit_orelse_block(node.orelse)
 
@@ -140,6 +150,15 @@ def parse_code(code):  # For the flowchart
                             for tid in terminal_ids:
                                 branching_map.setdefault(tid, {})["next"] = next_id
                 return
+
+            elif isinstance(node, (ast.For, ast.While)):
+                for loop_node in node.body:
+                    visit(loop_node, node.body)
+                link_sequential_flow(node.body)
+                last_id = node_id_map.get(id(node.body[-1]))
+                loop_id = node_id_map.get(id(node))
+                if last_id and loop_id:
+                    branching_map.setdefault(last_id, {})["next"] = loop_id
 
         for child in ast.iter_child_nodes(node):
             visit(child, parent_body)
