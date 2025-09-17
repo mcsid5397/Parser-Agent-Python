@@ -28,149 +28,102 @@ def sanitize_label(label):
 def parse_code(code):
     tree = ast.parse(code)
     parsed_lines = []
-    branching_map = {}
-    node_id_map = {}
-    visited_nodes = set()
-    seen_labels = set()
-    counter = 0
+    edges = []
+    node_counter = 0
 
-    def add_node(label, shape):
-        nonlocal counter
+    def new_node(label, shape):
+        nonlocal node_counter
         label = sanitize_label(label)
-        if not label.strip():
-            return None
-        node_id = f"N{counter}"
+        node_id = f"N{node_counter}"
         parsed_lines.append({"id": node_id, "line": label, "shape": shape})
-        seen_labels.add(label)
-        node_id_map[label] = node_id
-        counter += 1
+        node_counter += 1
         return node_id
 
-    def visit(node, parent=None):
-        if id(node) in visited_nodes:
-            return
-        visited_nodes.add(id(node))
-
-        label, shape = "", ""
-
+    def visit(node, parent_id=None):
         if isinstance(node, ast.FunctionDef):
             args = [arg.arg for arg in node.args.args]
             label = f"def {node.name}({', '.join(args)})"
-            shape = "subproc"
-            func_id = add_node(label, shape)
-            for child in node.body:
-                visit(child, func_id)
-            branching_map["Start"] = {"next": func_id}
-            return
+            func_id = new_node(label, "subproc")
+            if parent_id:
+                edges.append((parent_id, "", func_id))
+            prev_id = func_id
+            for stmt in node.body:
+                prev_id = visit(stmt, prev_id)
+            return func_id
 
         elif isinstance(node, ast.If):
             label = f"if {ast.unparse(node.test)}"
-            shape = "diamond"
-            cond_id = add_node(label, shape)
-            yes_ids, no_ids = [], []
-            for child in node.body:
-                visit(child, cond_id)
-                yes_ids.append(node_id_map.get(sanitize_label(ast.unparse(child))))
-            for child in node.orelse:
-                visit(child, cond_id)
-                no_ids.append(node_id_map.get(sanitize_label(ast.unparse(child))))
-            branching_map[node_id_map[label]] = {"yes": yes_ids, "no": no_ids}
-            return
+            cond_id = new_node(label, "diamond")
+            if parent_id:
+                edges.append((parent_id, "", cond_id))
+            yes_id = None
+            no_id = None
+            if node.body:
+                yes_id = visit(node.body[0], cond_id)
+                edges.append((cond_id, "Yes", yes_id))
+                for i in range(1, len(node.body)):
+                    yes_id = visit(node.body[i], yes_id)
+            if node.orelse:
+                no_id = visit(node.orelse[0], cond_id)
+                edges.append((cond_id, "No", no_id))
+                for i in range(1, len(node.orelse)):
+                    no_id = visit(node.orelse[i], no_id)
+            return cond_id
 
         elif isinstance(node, ast.For):
             label = f"for i in range(2, int(n ** 0.5) + 1)"
-            shape = "hex"
-            loop_id = add_node(label, shape)
-            loop_body_ids = []
-            for child in node.body:
-                visit(child, loop_id)
-                loop_body_ids.append(node_id_map.get(sanitize_label(ast.unparse(child))))
-            branching_map[loop_id] = {"yes": [loop_body_ids[0]], "no": []}
-            last_body_id = loop_body_ids[-1]
-            branching_map[last_body_id] = {"no": [loop_id]}
-            return
-
-        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-            label = ast.unparse(node)
-            shape = "in-out"
-            add_node(label, shape)
-            return
-
-        elif isinstance(node, ast.Return):
-            label = "return"
-            shape = "dbl-circ"
-            add_node(label, shape)
-            return
-
-        elif isinstance(node, ast.IfExp) or isinstance(node, ast.Compare):
-            label = ast.unparse(node)
-            shape = "diamond"
-            add_node(label, shape)
-            return
-
-        elif isinstance(node, ast.Assign):
-            label = ast.unparse(node)
-            shape = "rect"
-            add_node(label, shape)
-            return
-
-        elif isinstance(node, ast.Pass):
-            label = "pass"
-            shape = "rect"
-            add_node(label, shape)
-            return
+            loop_id = new_node(label, "hex")
+            if parent_id:
+                edges.append((parent_id, "", loop_id))
+            body_start = visit(node.body[0], loop_id)
+            edges.append((loop_id, "Yes", body_start))
+            body_end = body_start
+            for i in range(1, len(node.body)):
+                body_end = visit(node.body[i], body_end)
+            edges.append((body_end, "No", loop_id))  # loopback
+            return loop_id
 
         elif isinstance(node, ast.Expr):
             label = ast.unparse(node)
-            shape = "rect"
-            add_node(label, shape)
-            return
+            expr_id = new_node(label, "in-out")
+            if parent_id:
+                edges.append((parent_id, "", expr_id))
+            return expr_id
 
-        elif isinstance(node, ast.If):
-            visit(node.test, parent)
-            for child in node.body + node.orelse:
-                visit(child, parent)
-            return
+        elif isinstance(node, ast.Return):
+            label = "return"
+            ret_id = new_node(label, "dbl-circ")
+            if parent_id:
+                edges.append((parent_id, "", ret_id))
+            edges.append((ret_id, "", "End"))
+            return ret_id
 
-        for child in ast.iter_child_nodes(node):
-            visit(child, parent)
+        else:
+            last_id = parent_id
+            for child in ast.iter_child_nodes(node):
+                last_id = visit(child, last_id)
+            return last_id
 
-    visit(tree)
-    return parsed_lines, branching_map
+    start_id = "Start"
+    parsed_lines.insert(0, {"id": start_id, "line": "Start", "shape": "circle"})
+    parsed_lines.append({"id": "End", "line": "End", "shape": "circle"})
 
-def build_mermaid_nodes(parsed_lines):
-    nodes = []
-    annotations = []
-    for item in parsed_lines:
-        nodes.append(f'{item["id"]}["{item["line"]}"]')
-        annotations.append(f'{item["id"]}@{{ shape: {item["shape"]} }}')
-    return nodes, annotations
+    for node in tree.body:
+        visit(node, start_id)
 
-def build_mermaid_edges(parsed_lines, branching_map):
-    edges = []
-    id_map = {item["line"]: item["id"] for item in parsed_lines}
-    for src, targets in branching_map.items():
-        src_id = id_map.get(src) if src != "Start" else "Start"
-        if "next" in targets:
-            edges.append(f"{src_id} --> {targets['next']}")
-        if "yes" in targets:
-            for tgt in targets["yes"]:
-                edges.append(f"{src_id} -->|Yes| {tgt}")
-        if "no" in targets:
-            for tgt in targets["no"]:
-                edges.append(f"{src_id} -->|No| {tgt}")
-    for item in parsed_lines:
-        if item["line"] == "return":
-            edges.append(f'{item["id"]} --> End')
-    return edges
+    return parsed_lines, edges
 
 def generate_mermaid_flowchart(code):
-    parsed, branching_map = parse_code(code)
-    nodes, annotations = build_mermaid_nodes(parsed)
-    edges = build_mermaid_edges(parsed, branching_map)
-    nodes.insert(0, 'Start(["Start"])')
-    nodes.append('End(["End"])')
-    return "flowchart TD\n" + "\n".join(nodes + edges) + "\n" + "\n".join(annotations)
+    nodes, edges = parse_code(code)
+    node_lines = [f'{n["id"]}["{n["line"]}"]' for n in nodes]
+    shape_lines = [f'{n["id"]}@{{ shape: {n["shape"]} }}' for n in nodes]
+    edge_lines = []
+    for src, label, tgt in edges:
+        if label:
+            edge_lines.append(f"{src} -->|{label}| {tgt}")
+        else:
+            edge_lines.append(f"{src} --> {tgt}")
+    return "flowchart TD\n" + "\n".join(node_lines + edge_lines + shape_lines)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
