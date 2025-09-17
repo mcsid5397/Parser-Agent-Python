@@ -28,7 +28,7 @@ def parse_code(code):
 
     def add_node(label, shape):
         nonlocal counter
-        if label in seen_labels:
+        if not label.strip() or label in seen_labels:
             return None
         seen_labels.add(label)
         node_id = f"N{counter}"
@@ -47,6 +47,11 @@ def parse_code(code):
         if id(node) in visited_nodes:
             return
         visited_nodes.add(id(node))
+
+        if isinstance(node, ast.Module):
+            for child in node.body:
+                visit(child, node.body)
+            return
 
         label, shape = "", ""
 
@@ -157,12 +162,6 @@ def build_mermaid_edges(parsed_lines, branching_map):
         if "next" in targets:
             edges.append(f"{src} --> {targets['next']}")
 
-    for i in range(len(parsed_lines) - 1):
-        src = parsed_lines[i]["id"]
-        dst = parsed_lines[i + 1]["id"]
-        if not any(src == b or src in branching_map for b in [t["id"] for t in parsed_lines]):
-            edges.append(f"{src} --> {dst}")
-
     for item in parsed_lines:
         if item["line"].startswith("return") and all(f"{item['id']} -->" not in e for e in edges):
             if item["id"] not in linked_to_end:
@@ -173,6 +172,9 @@ def build_mermaid_edges(parsed_lines, branching_map):
 
 def generate_mermaid_flowchart(code):
     parsed, branching_map = parse_code(code)
+    if not parsed:
+        return "flowchart TD\nStart --> End\nStart([\"Start\"])\nEnd([\"End\"])"
+
     nodes, annotations = build_mermaid_nodes(parsed)
     edges = build_mermaid_edges(parsed, branching_map)
 
