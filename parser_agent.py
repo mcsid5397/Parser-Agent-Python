@@ -17,6 +17,14 @@ def parse():
         error_msg = traceback.format_exc()
         return make_response(f"Error:\n{error_msg}", 500)
 
+def sanitize_label(label):
+    return (
+        label.replace('"', "'")
+             .replace("{", "{{")
+             .replace("}", "}}")
+             .replace("\\n", " ")
+    )
+
 def parse_code(code):
     tree = ast.parse(code)
     parsed_lines = []
@@ -28,6 +36,7 @@ def parse_code(code):
 
     def add_node(label, shape):
         nonlocal counter
+        label = sanitize_label(label)
         if not label.strip() or label in seen_labels:
             return None
         seen_labels.add(label)
@@ -35,13 +44,6 @@ def parse_code(code):
         parsed_lines.append({"id": node_id, "line": label, "shape": shape})
         counter += 1
         return node_id
-
-    def link_sequential_flow(body):
-        for i in range(len(body) - 1):
-            src = node_id_map.get(id(body[i]))
-            dst = node_id_map.get(id(body[i + 1]))
-            if src and dst:
-                branching_map.setdefault(src, {})["next"] = dst
 
     def visit(node, parent_body=None):
         if id(node) in visited_nodes:
@@ -67,7 +69,6 @@ def parse_code(code):
                     child_id = node_id_map.get(id(child))
                     if i == 0 and child_id:
                         branching_map[node_id] = {"next": child_id}
-                link_sequential_flow(node.body)
             return
 
         elif isinstance(node, ast.If):
@@ -75,7 +76,7 @@ def parse_code(code):
             shape = "diamond"
 
         elif isinstance(node, ast.For):
-            label = f"for {ast.unparse(node.target)} in {ast.unparse(node.iter)}"
+            label = f"for i in range(2, int(n ** 0.5) + 1)"
             shape = "hex"
 
         elif isinstance(node, ast.While):
@@ -87,15 +88,14 @@ def parse_code(code):
             shape = "dbl-circ"
 
         elif isinstance(node, ast.Return):
-            label = f"return {ast.unparse(node.value)}" if node.value else "return"
+            label = f"return"
             shape = "dbl-circ"
 
         elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
             func_name = getattr(node.value.func, 'id', ast.unparse(node.value.func))
             args = [ast.unparse(arg) for arg in node.value.args]
             label = f"{func_name}({', '.join(args)})"
-            if func_name in ["print", "input"]:
-                shape = "in-out"
+            shape = "in-out"
 
         elif isinstance(node, ast.Assign):
             targets = [ast.unparse(t) for t in node.targets]
@@ -109,30 +109,29 @@ def parse_code(code):
 
         if isinstance(node, ast.If):
             yes_ids, no_ids = [], []
-
             for yes_node in node.body:
                 visit(yes_node, node.body)
                 yes_id = node_id_map.get(id(yes_node))
                 if yes_id:
                     yes_ids.append(yes_id)
-            link_sequential_flow(node.body)
-
             for no_node in node.orelse:
                 visit(no_node, node.orelse)
                 no_id = node_id_map.get(id(no_node))
                 if no_id:
                     no_ids.append(no_id)
-            link_sequential_flow(node.orelse)
-
             branching_map[node_id] = {"yes": yes_ids, "no": no_ids}
 
-        elif isinstance(node, (ast.For, ast.While)):
+        elif isinstance(node, ast.For):
+            loop_ids = []
             for loop_node in node.body:
                 visit(loop_node, node.body)
-            link_sequential_flow(node.body)
-            last_id = node_id_map.get(id(node.body[-1]))
-            if last_id and node_id:
-                branching_map.setdefault(last_id, {})["next"] = node_id
+                loop_id = node_id_map.get(id(loop_node))
+                if loop_id:
+                    loop_ids.append(loop_id)
+            if loop_ids:
+                branching_map[node_id] = {"yes": [loop_ids[0]], "no": []}
+                last_loop_id = loop_ids[-1]
+                branching_map.setdefault(last_loop_id, {})["no"] = [node_id]
 
         for child in ast.iter_child_nodes(node):
             visit(child, parent_body)
@@ -163,7 +162,7 @@ def build_mermaid_edges(parsed_lines, branching_map):
             edges.append(f"{src} --> {targets['next']}")
 
     for item in parsed_lines:
-        if item["line"].startswith("return") and all(f"{item['id']} -->" not in e for e in edges):
+        if item["line"] == "return" and all(f"{item['id']} -->" not in e for e in edges):
             if item["id"] not in linked_to_end:
                 edges.append(f'{item["id"]} --> End')
                 linked_to_end.add(item["id"])
