@@ -17,17 +17,19 @@ def parse():
         error_msg = traceback.format_exc()
         return make_response(f"Error:\n{error_msg}", 500)
 
+# Sanitize labels for Mermaid compatibility
 def sanitize_label(label):
     return (
         label.replace('"', "'")
-             .replace("{", "{{")
-             .replace("}", "}}")
+             .replace("{", "{")
+             .replace("}", "}")
              .replace("\\n", " ")
     )
 
+# Parse Python code into AST and build flowchart nodes/edges
 def parse_code(code):
     tree = ast.parse(code)
-    parsed_lines = []
+    nodes = []
     edges = []
     node_counter = 0
 
@@ -35,7 +37,7 @@ def parse_code(code):
         nonlocal node_counter
         label = sanitize_label(label)
         node_id = f"N{node_counter}"
-        parsed_lines.append({"id": node_id, "line": label, "shape": shape})
+        nodes.append({"id": node_id, "line": label, "shape": shape})
         node_counter += 1
         return node_id
 
@@ -44,37 +46,34 @@ def parse_code(code):
             args = [arg.arg for arg in node.args.args]
             label = f"def {node.name}({', '.join(args)})"
             func_id = new_node(label, "subproc")
-            if parent_id:
-                edges.append((parent_id, "", func_id))
+            edges.append(("Start", "", func_id))
             prev_id = func_id
             for stmt in node.body:
                 prev_id = visit(stmt, prev_id)
-            return func_id
+            return prev_id
 
         elif isinstance(node, ast.If):
             label = f"if {ast.unparse(node.test)}"
             cond_id = new_node(label, "diamond")
-            if parent_id:
-                edges.append((parent_id, "", cond_id))
-            yes_id = None
-            no_id = None
-            if node.body:
-                yes_id = visit(node.body[0], cond_id)
-                edges.append((cond_id, "Yes", yes_id))
-                for i in range(1, len(node.body)):
-                    yes_id = visit(node.body[i], yes_id)
+            edges.append((parent_id, "", cond_id))
+            yes_id = visit(node.body[0], cond_id)
+            edges.append((cond_id, "Yes", yes_id))
+            for i in range(1, len(node.body)):
+                yes_id = visit(node.body[i], yes_id)
             if node.orelse:
                 no_id = visit(node.orelse[0], cond_id)
                 edges.append((cond_id, "No", no_id))
                 for i in range(1, len(node.orelse)):
                     no_id = visit(node.orelse[i], no_id)
+            else:
+                # If no explicit else, link to next block
+                edges.append((cond_id, "No", None))  # Placeholder
             return cond_id
 
         elif isinstance(node, ast.For):
             label = f"for i in range(2, int(n ** 0.5) + 1)"
             loop_id = new_node(label, "hex")
-            if parent_id:
-                edges.append((parent_id, "", loop_id))
+            edges.append((parent_id, "", loop_id))
             body_start = visit(node.body[0], loop_id)
             edges.append((loop_id, "Yes", body_start))
             body_end = body_start
@@ -86,15 +85,13 @@ def parse_code(code):
         elif isinstance(node, ast.Expr):
             label = ast.unparse(node)
             expr_id = new_node(label, "in-out")
-            if parent_id:
-                edges.append((parent_id, "", expr_id))
+            edges.append((parent_id, "", expr_id))
             return expr_id
 
         elif isinstance(node, ast.Return):
             label = "return"
             ret_id = new_node(label, "dbl-circ")
-            if parent_id:
-                edges.append((parent_id, "", ret_id))
+            edges.append((parent_id, "", ret_id))
             edges.append((ret_id, "", "End"))
             return ret_id
 
@@ -104,15 +101,23 @@ def parse_code(code):
                 last_id = visit(child, last_id)
             return last_id
 
-    start_id = "Start"
-    parsed_lines.insert(0, {"id": start_id, "line": "Start", "shape": "circle"})
-    parsed_lines.append({"id": "End", "line": "End", "shape": "circle"})
+    nodes.insert(0, {"id": "Start", "line": "Start", "shape": "circle"})
+    nodes.append({"id": "End", "line": "End", "shape": "circle"})
 
     for node in tree.body:
-        visit(node, start_id)
+        visit(node, "Start")
 
-    return parsed_lines, edges
+    # Fix placeholder edges
+    for i, (src, label, tgt) in enumerate(edges):
+        if tgt is None:
+            # Find next node after src
+            src_index = next((j for j, n in enumerate(nodes) if n["id"] == src), None)
+            if src_index is not None and src_index + 1 < len(nodes):
+                edges[i] = (src, label, nodes[src_index + 1]["id"])
 
+    return nodes, edges
+
+# Generate Mermaid flowchart from nodes and edges
 def generate_mermaid_flowchart(code):
     nodes, edges = parse_code(code)
     node_lines = [f'{n["id"]}["{n["line"]}"]' for n in nodes]
